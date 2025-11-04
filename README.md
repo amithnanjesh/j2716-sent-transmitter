@@ -1,14 +1,13 @@
-````markdown
 # J2716 SENT Transmitter (VHDL)
 
 This repository contains my VHDL implementation of a **SAE J2716 SENT (Single Edge Nibble Transmission) transmitter**.
 
 The project includes:
 
-- Synthesizable VHDL source files  
-- Unit-level and top-level testbenches  
-- ModelSim/Questa `.do` scripts  
-- Simulation waveforms (screenshots)
+* Synthesizable VHDL source files
+* Unit-level and top-level testbenches
+* ModelSim/Questa `.do` scripts
+* Simulation waveforms (screenshots)
 
 I did this as part of my digital design course/lab.
 
@@ -16,27 +15,27 @@ I did this as part of my digital design course/lab.
 
 ## 1. What is SENT (short)
 
-SENT (Single Edge Nibble Transmission) is a **unidirectional, time-based** protocol.  
+SENT (Single Edge Nibble Transmission) is a **unidirectional, time-based** protocol.
 Data is sent on a single line (`SENT`) by changing the time between rising edges.
 
 Each 4-bit nibble (`0` to `15`) is sent as a pulse with a certain length:
 
 > `ticks = 12 + nibble`
 
-- Base: 12 ticks  
-- Nibble range: 0…15 → 12…27 ticks  
+* Base: 12 ticks
+* Nibble range: 0…15 → 12…27 ticks
 
 A frame in this project has:
 
-1. SYNC  
-2. STATUS nibble (fixed 0)  
-3. DATA0 nibble (lower 4 bits)  
-4. DATA1 nibble (upper 4 bits)  
+1. SYNC
+2. STATUS nibble (fixed 0)
+3. DATA0 nibble (lower 4 bits)
+4. DATA1 nibble (upper 4 bits)
 5. CRC nibble (4-bit CRC over STATUS, DATA0, DATA1)
 
 Clock used: **1 MHz**, so **1 tick = 1 µs**.
 
-For more background on SENT, I used this article as a reference:  
+For more background on SENT, I used this article as a reference:
 [Understanding the SENT interface](https://www.edn.com/understanding-the-sent-interface/)
 
 ---
@@ -73,7 +72,7 @@ j2716-sent-transmitter/
 │  ├─ MUX_Waveform.bmp
 │  └─ SENT_top.bmp
 └─ README.md
-````
+```
 
 ---
 
@@ -269,5 +268,3 @@ This shows the selected tick value on the MUX output changing as the FSM changes
 **Author:** Amith Nanjesh
 
 I implemented and tested this design as part of my university digital design project on the SAE J2716 SENT protocol.
-
-````
