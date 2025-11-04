@@ -1,63 +1,53 @@
+````markdown
 # J2716 SENT Transmitter (VHDL)
 
-This repository contains a VHDL implementation of a **SAE J2716 SENT (Single Edge Nibble Transmission) transmitter**, together with:
+This repository contains my VHDL implementation of a **SAE J2716 SENT (Single Edge Nibble Transmission) transmitter**.
 
-* Synthesizable RTL blocks
-* Unit-level and system-level testbenches
-* ModelSim/Questa `.do` scripts for easy simulation
-* Example waveforms captured from simulation
+The project includes:
 
-The goal of the project is to generate a valid **SENT data frame** with:
+- Synthesizable VHDL source files  
+- Unit-level and top-level testbenches  
+- ModelSim/Questa `.do` scripts  
+- Simulation waveforms (screenshots)
 
-* SYNC pulse
-* STATUS nibble (fixed to 0 in this design)
-* Two data nibbles (`DATA0`, `DATA1`) → 1 payload byte
-* A 4-bit CRC nibble (SAE J2716 CRC)
-* Timing based on a **1 MHz clock** (1 µs tick resolution)
+I did this as part of my digital design course/lab.
 
 ---
 
-## 1. SENT / J2716 Protocol Overview
+## 1. What is SENT (short)
 
-SENT (Single Edge Nibble Transmission) is a **unidirectional, time-encoded** protocol used mainly in automotive sensor interfaces. Information is transmitted on a single digital line (`SENT`) by encoding data in the **time between rising edges**.
+SENT (Single Edge Nibble Transmission) is a **unidirectional, time-based** protocol.  
+Data is sent on a single line (`SENT`) by changing the time between rising edges.
 
-### 1.1 Nibble Timing
+Each 4-bit nibble (`0` to `15`) is sent as a pulse with a certain length:
 
-Each 4-bit data nibble (`0` to `15`) is represented by a number of **ticks**:
+> `ticks = 12 + nibble`
 
-> ticks = 12 + nibble
+- Base: 12 ticks  
+- Nibble range: 0…15 → 12…27 ticks  
 
-* Base offset: **12 ticks**
-* Nibble range: 0…15 → time codes from **12 to 27 ticks**
+A frame in this project has:
 
-A special **SYNC pulse** is transmitted before every frame using a **longer, fixed number of ticks** (e.g. 56 ticks), which allows the receiver to recover timing.
+1. SYNC  
+2. STATUS nibble (fixed 0)  
+3. DATA0 nibble (lower 4 bits)  
+4. DATA1 nibble (upper 4 bits)  
+5. CRC nibble (4-bit CRC over STATUS, DATA0, DATA1)
 
-### 1.2 Frame Format
+Clock used: **1 MHz**, so **1 tick = 1 µs**.
 
-The design implements a standard SENT frame consisting of:
-
-1. **SYNC**
-2. **STATUS nibble** (fixed to 0 here)
-3. **DATA0 nibble** (lower 4 bits of payload)
-4. **DATA1 nibble** (upper 4 bits of payload)
-5. **CRC nibble** (4-bit CRC over STATUS, DATA0, DATA1)
-
-All timings are based on:
-
-* `CLK = 1 MHz`
-* `1 tick = 1 µs`
+For more background on SENT, I used this article as a reference:  
+[Understanding the SENT interface](https://www.edn.com/understanding-the-sent-interface/)
 
 ---
 
-## 2. Repository Structure
-
-A clean structure for this project:
+## 2. Repository structure
 
 ```text
 j2716-sent-transmitter/
 ├─ rtl/
 │  ├─ CRC4_SENT.vhd           -- 4-bit CRC encoder
-│  ├─ SAE_CRC_CALC_SENT.vhd   -- reference/alternative CRC calculator
+│  ├─ SAE_CRC_CALC_SENT.vhd   -- reference / alternative CRC
 │  ├─ PWM_SENT.vhd            -- tick-based pulse generator
 │  ├─ FSM_SENT.vhd            -- frame state machine
 │  ├─ MUX_SENT.vhd            -- selects tick count per nibble
@@ -68,29 +58,42 @@ j2716-sent-transmitter/
 │  ├─ PWM_SENT_tb.vhd
 │  ├─ FSM_SENT_tb.vhd
 │  ├─ MUX_SENT_tb.vhd
-│  └─ SENT_interface_tb.vhd   -- system-level testbench
+│  └─ SENT_interface_tb.vhd   -- top-level testbench
 ├─ scripts/
-│  ├─ setup.do                -- system-level sim for SENT_interface_tb
-│  ├─ setup_crc.do            -- unit test for CRC blocks
-│  ├─ setup_pwm.do            -- unit test for PWM_SENT
-│  ├─ setup_fsm.do            -- unit test for FSM_SENT
-│  └─ setup_mux.do            -- unit test for MUX_SENT
-├─ images/                    -- simulation result waveforms (BMP/PNG)
+│  ├─ setup.do                -- runs SENT_interface_tb
+│  ├─ setup_crc.do            -- CRC tests
+│  ├─ setup_pwm.do            -- PWM tests
+│  ├─ setup_fsm.do            -- FSM tests
+│  └─ setup_mux.do            -- MUX tests
+├─ images/
+│  ├─ concept_diagram.png     -- high-level block diagram (redrawn by me)
 │  ├─ CRC_waveform.bmp
 │  ├─ PWM_waveform.bmp
 │  ├─ FSM_waveform.bmp
 │  ├─ MUX_Waveform.bmp
 │  └─ SENT_top.bmp
 └─ README.md
-```
-
-(If your filenames differ slightly, adjust the structure or the README accordingly.)
+````
 
 ---
 
-## 3. Top-Level Design: `SENT_interface`
+## 3. Top-level design (`SENT_interface`)
 
-### 3.1 Entity (conceptual)
+### 3.1 Concept diagram
+
+![SENT transmitter concept diagram](images/concept_diagram.png)
+
+Simple idea of the architecture:
+
+* `DATA0` and `DATA1` are the 4-bit nibbles that form the payload byte.
+* A CRC block calculates a 4-bit CRC nibble using STATUS, DATA0 and DATA1.
+* SYNC, STATUS, DATA0, DATA1 and CRC are all mapped to tick values.
+* A MUX selects which field is currently being sent (SYNC / STATUS / DATA0 / DATA1 / CRC).
+* The selected tick value goes into the PWM block, which generates the actual `SENT` pulse and an “end-of-nibble” signal.
+* A simple FSM (Medvedev style) steps through the fields in order.
+* A small logic block generates `NEXT_Out` so new data can be loaded at the correct time.
+
+### 3.2 Top-level entity (simplified)
 
 ```vhdl
 entity SENT_interface is
@@ -100,387 +103,171 @@ entity SENT_interface is
 
     SENT       : out STD_LOGIC;                     -- SENT output line
 
-    Threshold  : in  UNSIGNED(5 downto 0);          -- high-time threshold within a nibble
-    DATA0      : in  STD_LOGIC_VECTOR(3 downto 0);  -- lower payload nibble
-    DATA1      : in  STD_LOGIC_VECTOR(3 downto 0);  -- upper payload nibble
+    Threshold  : in  UNSIGNED(5 downto 0);          -- high-time threshold
+    DATA0      : in  STD_LOGIC_VECTOR(3 downto 0);  -- lower nibble
+    DATA1      : in  STD_LOGIC_VECTOR(3 downto 0);  -- upper nibble
 
-    sync       : in  STD_LOGIC_VECTOR(5 downto 0);  -- tick count for SYNC pulse
-    status     : in  STD_LOGIC_VECTOR(5 downto 0);  -- tick count for STATUS nibble
+    sync       : in  STD_LOGIC_VECTOR(5 downto 0);  -- SYNC ticks
+    status     : in  STD_LOGIC_VECTOR(5 downto 0);  -- STATUS ticks
 
-    NEXT_Out   : out STD_LOGIC                      -- handshake to payload source
+    NEXT_Out   : out STD_LOGIC                      -- handshake to data source
   );
 end SENT_interface;
 ```
 
-### 3.2 Functional Overview
+What it does (in short):
 
-The `SENT_interface` block:
-
-1. **Accepts payload nibbles**
-   `DATA0` and `DATA1` together form the 1-byte sensor value.
-
-2. **Computes CRC**
-   Uses the CRC blocks (`CRC4_SENT` / `SAE_CRC_CALC_SENT`) to compute a 4-bit CRC over:
-
-   * STATUS nibble (0)
-   * `DATA0` nibble
-   * `DATA1` nibble
-
-3. **Converts nibbles to tick values**
-
-   * STATUS, DATA0, DATA1, CRC:
-     `ticks = 12 + nibble`
-   * SYNC:
-     `ticks = sync` (fixed setting, e.g. 56)
-
-4. **Controls timing with PWM**
-
-   * Selected tick count is passed to `PWM_SENT` as `reload_value`.
-   * `PWM_SENT` generates the SENT pulse inside each nibble interval and asserts `pwm_sent_out` when the nibble ends.
-
-5. **Sequences frame fields**
-
-   * `FSM_SENT` receives `pwm_sent_out` and steps through:
-
-     * SYNC → STATUS → DATA0 → DATA1 → CRC → back to SYNC
-   * Current FSM state is used as select input for `MUX_SENT`.
-
-6. **Selects correct tick count**
-
-   * `MUX_SENT` selects between SYNC/STATUS/DATA0/DATA1/CRC tick values based on the FSM state and feeds them to `PWM_SENT`.
-
-7. **Handshake**
-
-   * `NEXT_Out` indicates when the transmitter is ready for new payload nibbles from upstream logic.
-
-8. **SENT line**
-
-   * The final encoded SENT waveform is driven on the `SENT` output pin.
+* Takes `DATA0` and `DATA1` as input data.
+* Calculates the CRC nibble.
+* Converts nibbles + SYNC/STATUS into tick values.
+* Uses FSM + MUX + PWM to send each field with correct timing.
+* Drives the final encoded waveform on `SENT`.
+* Uses `NEXT_Out` to signal when new data can be applied.
 
 ---
 
-## 4. RTL Block Descriptions
+## 4. Main building blocks (short)
 
-### 4.1 `CRC4_SENT` and `SAE_CRC_CALC_SENT`
+I don’t explain the code line by line here, just the basic role of each module.
 
-These blocks implement the SAE J2716 CRC.
+* **`CRC4_SENT.vhd` / `SAE_CRC_CALC_SENT.vhd`**
+  4-bit CRC calculation according to SAE J2716. Used to generate the CRC nibble from STATUS, DATA0 and DATA1.
 
-**Typical CRC interface:**
+* **`PWM_SENT.vhd`**
+  Tick counter and pulse generator. Takes a tick count and creates the proper high/low timing for one SENT nibble, and outputs an end-of-nibble pulse.
 
-```vhdl
-entity CRC4_SENT is
-  port (
-    data       : in  STD_LOGIC_VECTOR(3 downto 0);  -- current nibble
-    input_crc  : in  STD_LOGIC_VECTOR(3 downto 0);  -- previous CRC
-    output_crc : out STD_LOGIC_VECTOR(3 downto 0)   -- updated CRC
-  );
-end CRC4_SENT;
-```
+* **`FSM_SENT.vhd`**
+  State machine that steps through: SYNC → STATUS → DATA0 → DATA1 → CRC → back to SYNC.
 
-* The CRC is updated nibble by nibble.
-* STATUS, DATA0, DATA1 are processed sequentially.
-* The resulting 4-bit CRC is sent as the final nibble in the SENT frame.
+* **`MUX_SENT.vhd`**
+  Selects which tick value (SYNC, STATUS, DATA0, DATA1 or CRC) is sent to the PWM based on the FSM state.
 
-`SAE_CRC_CALC_SENT` is a reference/alternative CRC implementation used for comparison and verification.
-
----
-
-### 4.2 `PWM_SENT`
-
-**Purpose:** Generate the SENT pulse within each nibble’s time slot and indicate the end of the nibble.
-
-**Conceptual interface:**
-
-```vhdl
-entity PWM_SENT is
-  port (
-    clk          : in  STD_LOGIC;
-    rst          : in  STD_LOGIC;
-    threshold    : in  UNSIGNED(5 downto 0);  -- SENT high duration (ticks)
-    reload_value : in  UNSIGNED(5 downto 0);  -- total nibble duration (ticks)
-    sent_signal  : out STD_LOGIC;             -- SENT line output
-    pwm_sent_out : out STD_LOGIC              -- end-of-nibble pulse
-  );
-end PWM_SENT;
-```
-
-**Behavior:**
-
-* Internal counter increments every clock cycle (1 MHz → 1 µs).
-* While `counter < threshold`, `sent_signal = '1'`, otherwise `'0'`.
-* When `counter = reload_value - 1`, `pwm_sent_out` is asserted for one clock and the counter wraps.
-
----
-
-### 4.3 `FSM_SENT`
-
-**Purpose:** Control the ordering of fields within a SENT frame.
-
-**Conceptual interface:**
-
-```vhdl
-entity FSM_SENT is
-  port (
-    clk            : in  STD_LOGIC;
-    rst            : in  STD_LOGIC;
-    pwm_sent_out   : in  STD_LOGIC;                -- advance pulse from PWM
-    fsm_out_signal : out STD_LOGIC_VECTOR(2 downto 0)
-  );
-end FSM_SENT;
-```
-
-Typical state encoding (example):
-
-* `000` → SYNC
-* `001` → STATUS
-* `010` → DATA0
-* `011` → DATA1
-* `100` → CRC
-
-The FSM advances one state on each `pwm_sent_out` pulse.
-
----
-
-### 4.4 `MUX_SENT`
-
-**Purpose:** Select the appropriate 6-bit tick value depending on the current FSM state.
-
-**Conceptual interface:**
-
-```vhdl
-entity MUX_SENT is
-  port (
-    clk        : in  STD_LOGIC;
-    sync       : in  STD_LOGIC_VECTOR(5 downto 0);
-    stat       : in  STD_LOGIC_VECTOR(5 downto 0);
-    d0         : in  STD_LOGIC_VECTOR(5 downto 0);
-    d1         : in  STD_LOGIC_VECTOR(5 downto 0);
-    crc4       : in  STD_LOGIC_VECTOR(5 downto 0);
-    fsm_out    : in  STD_LOGIC_VECTOR(2 downto 0);
-    output_mux : out STD_LOGIC_VECTOR(5 downto 0)
-  );
-end MUX_SENT;
-```
-
-* Decodes `fsm_out` and forwards one of the tick values (SYNC/STATUS/DATA0/DATA1/CRC).
-* `output_mux` is connected to `PWM_SENT.reload_value`.
+* **`SENT_interface.vhd`**
+  Top-level that connects everything and drives the `SENT` and `NEXT_Out` signals.
 
 ---
 
 ## 5. Testbenches
 
-All testbenches are stored under `sim/`.
+All testbenches are in `sim/`:
 
-### 5.1 Unit-Level Testbenches
+* `CRC4_SENT_tb.vhd` and `SAE_CRC_CALC_SENT_tb.vhd`
+  Check CRC calculation against expected values.
 
-* **`CRC4_SENT_tb.vhd`**
+* `PWM_SENT_tb.vhd`
+  Checks the PWM timing and `pwm_sent_out` pulse.
 
-  * Feeds known nibble sequences into `CRC4_SENT`.
-  * Checks the resulting CRC against expected values or a reference.
+* `FSM_SENT_tb.vhd`
+  Checks that the FSM goes through the field sequence correctly.
 
-* **`SAE_CRC_CALC_SENT_tb.vhd`**
+* `MUX_SENT_tb.vhd`
+  Checks that the correct tick value appears at the output for each state.
 
-  * Verifies the reference CRC implementation.
-  * Useful to confirm compliance with SAE J2716 CRC rules.
-
-* **`PWM_SENT_tb.vhd`**
-
-  * Stimulates `PWM_SENT` with various `threshold` and `reload_value` values.
-  * Checks high/low timing of `sent_signal` and correct timing of `pwm_sent_out`.
-
-* **`FSM_SENT_tb.vhd`**
-
-  * Drives artificial `pwm_sent_out` pulses.
-  * Confirms correct state progression (SYNC → STATUS → DATA0 → DATA1 → CRC).
-
-* **`MUX_SENT_tb.vhd`**
-
-  * Applies different FSM state encodings and tick values.
-  * Verifies that `output_mux` selects the appropriate input.
-
-### 5.2 System-Level Testbench: `SENT_interface_tb.vhd`
-
-* Instantiates the complete `SENT_interface` block.
-* Generates:
-
-  * 1 MHz clock
-  * Active-low reset (`RESn`)
-* Applies:
-
-  * `DATA0`/`DATA1` patterns
-  * `sync`, `status`, and `Threshold` settings
-* Monitors:
-
-  * `SENT` waveform
-  * FSM state signals
-  * CRC value
-  * `NEXT_Out` handshake
-
-This testbench is intended for **full-frame functional verification** and waveform inspection.
+* `SENT_interface_tb.vhd`
+  Top-level testbench. Drives example data and observes the complete SENT frame.
 
 ---
 
-## 6. Simulation with ModelSim / Questa
+## 6. Simulation (ModelSim / Questa)
 
-The `scripts/` folder contains `.do` files to automatically compile and run simulations.
+All `.do` scripts are in the `scripts/` folder.
 
-### 6.1 System-Level Simulation
+### 6.1 Top-level simulation
 
-From the repository root, in the ModelSim/Questa console:
+From the project root in the ModelSim/Questa console:
 
 ```tcl
 do scripts/setup.do
 ```
 
-`setup.do` will:
+This script:
 
-1. Recreate the `work` library.
-2. Compile all RTL files under `rtl/`.
-3. Compile `sim/SENT_interface_tb.vhd`.
-4. Start a simulation of `SENT_interface_tb` (architecture `tb`).
-5. Add DUT signals to the waveform.
-6. Run the simulation until completion (`run -all`).
+1. Creates a fresh `work` library
+2. Compiles all RTL files under `rtl/`
+3. Compiles `sim/SENT_interface_tb.vhd`
+4. Starts `SENT_interface_tb`
+5. Adds signals to the waveform
+6. Runs the simulation (`run -all`)
 
-### 6.2 Unit-Level Simulations
+### 6.2 Block-level simulations
 
-To run individual block testbenches:
+You can also run the unit tests:
 
 ```tcl
-# CRC block tests
 do scripts/setup_crc.do
-
-# PWM block tests
 do scripts/setup_pwm.do
-
-# FSM block tests
 do scripts/setup_fsm.do
-
-# MUX block tests
 do scripts/setup_mux.do
 ```
 
-Each `.do` script:
-
-* Creates a fresh `work` library
-* Compiles the corresponding RTL + testbench
-* Starts the simulation with all signals in the waveform window
-* Executes `run -all`
+Each script compiles one block + its testbench and runs it.
 
 ---
 
-## 7. Alternative Simulation with GHDL (Optional)
+## 7. Example waveforms
 
-For users of an open-source simulator such as **GHDL**:
+The `images/` folder contains screenshots from simulation.
 
-```bash
-# From the repo root:
-
-# Analyze RTL
-ghdl -a rtl/CRC4_SENT.vhd rtl/SAE_CRC_CALC_SENT.vhd \
-       rtl/PWM_SENT.vhd rtl/FSM_SENT.vhd rtl/MUX_SENT.vhd \
-       rtl/SENT_interface.vhd
-
-# Analyze system-level testbench
-ghdl -a sim/SENT_interface_tb.vhd
-
-# Elaborate
-ghdl -e SENT_interface_tb
-
-# Run and dump VCD
-ghdl -r SENT_interface_tb --vcd=images/sent_waveform.vcd
-```
-
-The generated `sent_waveform.vcd` can be opened in **GTKWave** or any VCD viewer to inspect:
-
-* `SENT` line
-* FSM state
-* Tick counters and thresholds
-* CRC nibble
-* `NEXT_Out` handshake
-
----
-
-## 8. Results (Example Waveforms)
-
-This section shows selected simulation results from ModelSim/Questa for each major block and for the top-level SENT transmitter.
-Waveform screenshots are stored in the `images/` folder.
-
-### 8.1 Top-Level SENT Frame
+### 7.1 Top-level SENT frame
 
 ![Top-level SENT frame](images/SENT_top.bmp)
 
-This waveform shows one complete SENT frame on the `SENT` line:
+This shows one complete SENT frame on the `SENT` line:
 
-* Initial **SYNC pulse** with a longer tick period
-* **STATUS nibble** (fixed to 0)
-* **DATA0 nibble**
-* **DATA1 nibble**
-* **CRC nibble**
+* SYNC
+* STATUS
+* DATA0
+* DATA1
+* CRC
 
-You can also see the timing alignment with the system clock and, if enabled in your testbench, internal control signals such as FSM state and end-of-nibble pulses.
+You can see the different pulse lengths for each field.
 
 ---
 
-### 8.2 CRC Block Waveform
+### 7.2 CRC block
 
 ![CRC block waveform](images/CRC_waveform.bmp)
 
-This waveform captures the behavior of the CRC generator:
-
-* Input nibbles (STATUS, DATA0, DATA1) are applied in sequence.
-* The internal CRC value is updated nibble-by-nibble.
-* The final **4-bit CRC nibble** matches the SAE J2716 CRC for the given payload.
-
-This demonstrates that the CRC logic correctly implements the specified polynomial and update sequence.
+This shows how the CRC value changes as STATUS, DATA0 and DATA1 are processed and how the final CRC nibble is generated.
 
 ---
 
-### 8.3 PWM Block Waveform
+### 7.3 PWM block
 
 ![PWM waveform](images/PWM_waveform.bmp)
 
-This waveform shows the `PWM_SENT` block:
+This shows:
 
-* The **internal tick counter** increments at 1 MHz.
-* The `sent_signal` output stays **high** for `threshold` ticks and then **low** until `reload_value` is reached.
-* At the end of the nibble, `pwm_sent_out` asserts for **one clock cycle**, which is used by the FSM to advance to the next field.
-
-This confirms that the pulse width and total nibble duration follow the expected SENT timing.
+* The internal tick counter
+* The high-time defined by `threshold`
+* The `pwm_sent_out` pulse at the end of the nibble
 
 ---
 
-### 8.4 FSM Block Waveform
+### 7.4 FSM block
 
 ![FSM waveform](images/FSM_waveform.bmp)
 
-This waveform illustrates the `FSM_SENT` behavior:
+This shows the FSM going through:
 
-* The FSM starts in the **SYNC** state after reset.
-* On each `pwm_sent_out` pulse from the PWM block, the state advances:
+* SYNC → STATUS → DATA0 → DATA1 → CRC → back to SYNC
 
-  * SYNC → STATUS → DATA0 → DATA1 → CRC → back to SYNC
-* The encoded state output (`fsm_out_signal`) changes accordingly.
-
-This verifies that the state machine correctly sequences all fields of a SENT frame.
+driven by the `pwm_sent_out` pulse from the PWM block.
 
 ---
 
-### 8.5 MUX Block Waveform
+### 7.5 MUX block
 
 ![MUX waveform](images/MUX_Waveform.bmp)
 
-This waveform shows the `MUX_SENT` operation:
-
-* Different **tick values** (for SYNC, STATUS, DATA0, DATA1, CRC) are present on the MUX inputs.
-* As `fsm_out` changes, `output_mux` switches to the corresponding input value.
-* The selected `output_mux` value is fed into `PWM_SENT.reload_value`.
-
-This confirms that the MUX correctly routes the right tick count for each SENT field based on the FSM state.
+This shows the selected tick value on the MUX output changing as the FSM changes state, so the PWM always gets the correct tick count for the current field.
 
 ---
 
-## 9. Author
+## 8. Author
 
 **Author:** Amith Nanjesh
 
-This design was developed as part of a digital design project focused on implementing and verifying a **SAE J2716 SENT transmitter** using VHDL and ModelSim/Questa simulations.
+I implemented and tested this design as part of my university digital design project on the SAE J2716 SENT protocol.
+
+````
